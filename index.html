@@ -624,6 +624,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;colo
             <div><div class="card-sub" style="margin-bottom:6px">Predicted vs actual</div><div class="chart-wrap" style="height:150px"><canvas id="c-fit"></canvas></div></div>
           </div>
         </div>
+        <div id="dl-lab"></div>
         <div id="insights-container"></div>
       </div>
 
@@ -688,7 +689,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;colo
         <div class="card">
           <div class="card-title" style="margin-bottom:12px">Model port path</div>
           <div class="callout callout-info">
-            The network in AI Insights runs in TensorFlow.js. The layer stack (Dense/ReLU &rarr; Dense/Tanh &rarr; Dense/Softsign &rarr; Sigmoid regression head, plus a ReLU &rarr; Tanh &rarr; Softmax classifier head) maps one-to-one onto Keras. Export with <code>model.save()</code>, load in SageMaker with <code>tf.keras.models.load_model()</code>, retrain on the full history in S3, and serve from a SageMaker endpoint called by Lambda.
+            The network in AI Insights runs in TensorFlow.js. The layer stack (Dense/ReLU &rarr; Dense/ReLU &rarr; Dense/ReLU &rarr; Linear regression head, plus a ReLU &rarr; ReLU &rarr; Softmax classifier head, and the LSTM, CNN and GAN models in the Deep Learning Lab) maps one-to-one onto Keras. Export with <code>model.save()</code>, load in SageMaker with <code>tf.keras.models.load_model()</code>, retrain on the full history in S3, and serve from a SageMaker endpoint called by Lambda.
           </div>
         </div>
       </div>
@@ -817,7 +818,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;colo
             <div class="settings-title">Data</div>
             <div class="settings-row"><div><div class="settings-label">Model backend</div><div class="settings-desc">TensorFlow.js</div></div><span class="badge badge-purple" id="tf-backend">--</span></div>
             <div class="settings-row"><div><div class="settings-label">CSV template</div><div class="settings-desc">Column format for imports</div></div><button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="downloadTemplate()">&#8681; Template</button></div>
-            <div class="settings-row"><div><div class="settings-label">Export everything</div><div class="settings-desc">JSON backup</div></div><button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="exportBackup()">&#8681; JSON</button></div>
+            <div class="settings-row"><div><div class="settings-label">Back up a client</div><div class="settings-desc">Every row for one client, restorable</div></div><button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="fyChooseBackup()">&#8681; Client</button></div>
+            <div class="settings-row"><div><div class="settings-label">Back up all clients</div><div class="settings-desc">One restorable file</div></div><button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="fyBackupAll()">&#8681; All</button></div>
+            <div class="settings-row"><div><div class="settings-label">Restore from backup</div><div class="settings-desc">Re-upload a backup file into the database</div></div><button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="fyOpenRestore()">&#8679; Restore</button></div>
           </div>
         </div>
       </div>
@@ -1538,16 +1541,24 @@ const Stat = {
    DEEP LEARNING  -  TensorFlow.js
    Two heads sharing an engineered feature vector:
 
-   REGRESSION HEAD  (next-week engagement rate)
-     Dense 32  ReLU        - rectifier, sparse activation
-     Dense 24  Tanh        - zero-centred, bounded -1..1
-     Dense 16  Softsign    - smoother saturation than tanh
-     Dense  1  Sigmoid     - squashes to 0..1, denormalised after
+   Activation policy: every hidden layer is ReLU (uniform, fast
+   training, good gradient flow); each output layer matches its
+   target. See js/dl-activations.js.
 
-   CLASSIFIER HEAD  (best content class per platform)
+   REGRESSION HEAD  (next-week engagement rate - continuous number)
+     Dense 32  ReLU
      Dense 24  ReLU
-     Dense 16  Tanh
+     Dropout 10%
+     Dense 16  ReLU
+     Dense  1  Linear      - unbounded continuous output
+
+   CLASSIFIER HEAD  (best content class per platform - one of many)
+     Dense 24  ReLU
+     Dense 16  ReLU
      Dense  6  Softmax     - probability distribution over classes
+
+   Sequential (RNN), image (CNN) and generative (GAN) models live
+   in js/dl-rnn.js, js/dl-cnn.js and js/dl-gan.js (Deep Learning Lab).
 
    Optimiser Adam, loss MSE (regression) / categoricalCrossentropy
    (classifier). Weights and biases are inspectable via
@@ -1589,10 +1600,10 @@ const NET = {
   buildRegressor(){
     const m=tf.sequential();
     m.add(tf.layers.dense({units:32, activation:'relu',     inputShape:[7], kernelInitializer:'heNormal',      useBias:true, name:'dense_relu_32'}));
-    m.add(tf.layers.dense({units:24, activation:'tanh',     kernelInitializer:'glorotNormal', useBias:true, name:'dense_tanh_24'}));
+    m.add(tf.layers.dense({units:24, activation:'relu',     kernelInitializer:'heNormal',     useBias:true, name:'dense_relu_24'}));
     m.add(tf.layers.dropout({rate:0.10, name:'dropout_10'}));
-    m.add(tf.layers.dense({units:16, activation:'softsign', kernelInitializer:'glorotNormal', useBias:true, name:'dense_softsign_16'}));
-    m.add(tf.layers.dense({units:1,  activation:'sigmoid',  kernelInitializer:'glorotNormal', useBias:true, name:'sigmoid_out'}));
+    m.add(tf.layers.dense({units:16, activation:'relu',     kernelInitializer:'heNormal',     useBias:true, name:'dense_relu_16'}));
+    m.add(tf.layers.dense({units:1,  activation:'linear',   kernelInitializer:'glorotNormal', useBias:true, name:'linear_out'}));
     m.compile({optimizer:tf.train.adam(0.012), loss:'meanSquaredError', metrics:['mse']});
     return m;
   },
@@ -1600,7 +1611,7 @@ const NET = {
   buildClassifier(nClasses){
     const m=tf.sequential();
     m.add(tf.layers.dense({units:24, activation:'relu', inputShape:[7], kernelInitializer:'heNormal', useBias:true, name:'clf_relu_24'}));
-    m.add(tf.layers.dense({units:16, activation:'tanh', kernelInitializer:'glorotNormal', useBias:true, name:'clf_tanh_16'}));
+    m.add(tf.layers.dense({units:16, activation:'relu', kernelInitializer:'heNormal', useBias:true, name:'clf_relu_16'}));
     m.add(tf.layers.dense({units:nClasses, activation:'softmax', kernelInitializer:'glorotNormal', useBias:true, name:'softmax_out'}));
     m.compile({optimizer:tf.train.adam(0.02), loss:'categoricalCrossentropy', metrics:['accuracy']});
     return m;
@@ -1720,7 +1731,7 @@ const NET = {
       const p=this.reg.predict(t);
       const raw=(await p.data())[0];
       t.dispose(); p.dispose();
-      const val=+norms.er.denorm(raw).toFixed(2);
+      const val=+Math.max(0, norms.er.denorm(raw)).toFixed(2);
       out.push(val); er.push(val);
     }
     return out;
@@ -1735,7 +1746,7 @@ const NET = {
     for(let i=0;i<s.er.length;i++) rows.push(this.features(s,i,norms));
     const t=tf.tensor2d(rows);
     const p=this.reg.predict(t);
-    const arr=Array.from(await p.data()).map(v=>+norms.er.denorm(v).toFixed(2));
+    const arr=Array.from(await p.data()).map(v=>+Math.max(0, norms.er.denorm(v)).toFixed(2));
     t.dispose(); p.dispose();
     return arr;
   },
@@ -3113,10 +3124,7 @@ function showAdminSQL(){
     '<button class="btn btn-primary" onclick="closeModal()">Got it</button>');
 }
 
-function exportBackup(){
-  download(new Blob([JSON.stringify(DB.clients,null,2)],{type:'application/json'}),'clients-'+todayISO()+'.json');
-  toast('Backup exported','success');
-}
+function exportBackup(){ fyBackupAll(); }
 </script>
 <script>
 /* ============================================================
@@ -4256,7 +4264,8 @@ function plainLayer(l){
   if(a==='relu') return 'ReLU — passes positive signals, blocks negative ones. Finds the basic patterns in the inputs.';
   if(a==='tanh') return 'Tanh — squeezes values into −1 … +1 so no single input dominates.';
   if(a==='softsign') return 'Softsign — a gentler squeeze than Tanh; keeps small differences visible.';
-  if(a==='sigmoid') return 'Sigmoid — final squeeze into 0 … 1. This is the predicted engagement rate, on a 0–1 scale.';
+  if(a==='linear') return 'Linear — output layer for a continuous number. This is the predicted engagement rate, unbounded so it can move past old highs and lows.';
+  if(a==='sigmoid') return 'Sigmoid — output squeezed into 0 … 1, used for yes / no and probability answers.';
   if(a==='softmax') return 'Softmax — turns the 6 content-type scores into probabilities that add up to 100%.';
   return l.name+' — '+l.activation;
 }
@@ -4510,5 +4519,11 @@ async function migrateLocalToCloud(){
   if (moved){ toast('Copied '+moved+' client(s) from this device to your cloud account ('+wk+' weeks, '+ps+' posts)','success',6000); logEvent('local_migrated',{clients:moved,weeks:wk,posts:ps}); }
 }
 </script>
+<script src="js/dl-activations.js"></script>
+<script src="js/dl-cnn.js"></script>
+<script src="js/dl-rnn.js"></script>
+<script src="js/dl-gan.js"></script>
+<script src="js/client-backup.js"></script>
+<script src="js/dl-lab.js"></script>
 </body>
 </html>

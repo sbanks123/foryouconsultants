@@ -1,0 +1,12 @@
+{
+  "name": "foryouconsultants",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Four You Consultants analytics platform - deep learning modules and client backup",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@tensorflow/tfjs": "4.17.0"
+  }
+}
