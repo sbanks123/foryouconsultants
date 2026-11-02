@@ -2,6 +2,7 @@
 
 Single-page app (`index.html`) hosted on Netlify, data stored in Supabase.
 
-Security: sign-in is Supabase Auth password + authenticator-app code (TOTP).
-Row Level Security allows only the owner account at assurance level aal2, so the
-public Supabase key in the page cannot read or change anything on its own.
+No login screen: each browser gets a private Supabase device account. Row Level
+Security (owner_id = auth.uid()) keeps every account's data invisible to others.
+
+The password + authenticator-code version is saved as git tag `secure-login`.

@@ -330,7 +330,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;colo
 
     <div id="auth-signin">
       <div class="login-title">Sign in</div>
-      <div class="login-sub">Private workspace. Sign in with your password, then your authenticator code.</div>
+      <div class="login-sub">Every user needs their own account. Data is scoped to you.</div>
       <form id="login-form">
         <div class="form-group">
           <label class="form-label">Email address</label>
@@ -347,11 +347,44 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;colo
         <div class="attempts-bar"><div class="attempts-fill" id="attempts-fill" style="width:0%"></div></div>
         <div id="attempts-text" style="font-size:11px;color:var(--text3);margin-top:5px;text-align:center"></div>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:18px 0 14px">
+        <div style="flex:1;height:1px;background:var(--border2)"></div>
+        <div style="font-size:11px;color:var(--text3)">or skip the password</div>
+        <div style="flex:1;height:1px;background:var(--border2)"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email address</label>
+        <input id="magic-email" class="form-input" type="email" placeholder="you@company.com"/>
+      </div>
+      <button id="magic-btn" type="button" class="btn-login"
+        style="background:var(--surface2);color:var(--gold);border:1px solid var(--border2)"
+        onclick="sendMagicLink()">Email me a sign-in link</button>
+      <div id="magic-status" style="font-size:12px;margin-top:8px;text-align:center;min-height:18px;color:var(--text2)"></div>
+      <div id="otp-box" style="display:none;margin-top:6px">
+        <div class="form-group">
+          <label class="form-label">6-digit code from the email</label>
+          <input id="otp-code" class="form-input" type="text" inputmode="numeric" maxlength="6" placeholder="000000"/>
+        </div>
+        <button type="button" class="btn-login" onclick="verifyOtp()">Verify code</button>
+      </div>
       <label class="chk" style="width:100%;justify-content:flex-start;margin-top:12px">
         <input type="checkbox" id="remember-me" checked/> Stay signed in on this device
       </label>
       <div class="login-footer">
+        <a onclick="showAuth('signup')">Create an account with a password</a> &middot;
         <a onclick="openForgot()">Forgot password?</a>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0 12px">
+        <div style="flex:1;height:1px;background:var(--border2)"></div>
+        <div style="font-size:11px;color:var(--text3)">owner / operator</div>
+        <div style="flex:1;height:1px;background:var(--border2)"></div>
+      </div>
+      <button type="button" class="btn-login"
+        style="background:transparent;color:var(--text2);border:1px dashed var(--border2)"
+        onclick="startLocalMode()">Open without an account &mdash; this device</button>
+      <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:8px;line-height:1.5">
+        Full access, no sign-in, no login screen again on this browser.<br/>
+        Data stays on this device and is never sent to the cloud.
       </div>
     </div>
 
@@ -379,25 +412,6 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;colo
       </form>
       <div id="signup-error"></div>
       <div class="login-footer"><a onclick="showAuth('signin')">Back to sign in</a></div>
-    </div>
-
-    <div id="auth-mfa" style="display:none">
-      <div class="login-title" id="mfa-title">Verification code</div>
-      <div class="login-sub" id="mfa-sub">Enter the 6-digit code from your authenticator app.</div>
-      <div id="mfa-enroll" style="display:none;text-align:center;margin-bottom:14px">
-        <img id="mfa-qr" alt="QR code to scan with your authenticator app" style="width:180px;height:180px;background:#fff;padding:8px;border-radius:8px"/>
-        <div style="font-size:11px;color:var(--text3);margin-top:8px">Can't scan? Enter this key manually:</div>
-        <div id="mfa-secret" style="font-family:monospace;font-size:12px;word-break:break-all;color:var(--gold);user-select:all"></div>
-      </div>
-      <form id="mfa-form">
-        <div class="form-group">
-          <label class="form-label">6-digit code</label>
-          <input id="mfa-code" class="form-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"/>
-        </div>
-        <button id="mfa-btn" type="submit" class="btn-login">Verify</button>
-      </form>
-      <div id="mfa-error" style="color:var(--red);font-size:12px;margin-top:8px;min-height:16px"></div>
-      <div class="login-footer"><a onclick="mfaBack()">Back to sign in</a></div>
     </div>
 
     <div id="auth-notice" style="margin-top:18px"></div>
@@ -926,7 +940,6 @@ function paintAttempts(){
 function showAuth(which){
   document.getElementById('auth-signin').style.display = which==='signin'?'block':'none';
   document.getElementById('auth-signup').style.display = which==='signup'?'block':'none';
-  const _m=document.getElementById('auth-mfa'); if(_m) _m.style.display = which==='mfa'?'block':'none';
   setText('login-error',''); setText('signup-error','');
 }
 
@@ -950,8 +963,8 @@ async function handleLogin(e){
     const rm=document.getElementById('remember-me');
     localStorage.setItem('fy_stay', (!rm || rm.checked) ? '1' : '0');
     lockClear(); paintAttempts();
-    btn.textContent='Sign in'; btn.disabled=false;
-    await continueAfterPassword();
+    logEvent('login_success',{});
+    launchApp();
   }catch(ex){
     const f=lockFail();
     err.textContent = f.locked
@@ -3531,99 +3544,12 @@ async function launchApp(){
   },300);
 }
 
-/* ============================================================
-   SECURE SIGN-IN  -  password + authenticator-app code (TOTP).
-   The database only answers a session that has passed both steps
-   (aal2), so the password alone can never read or change data.
-============================================================ */
-let MFA_FACTOR=null;
-async function currentAal(){
-  const a=await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (a.error) throw a.error;
-  return a.data.currentLevel;
-}
-function showLogin(){
-  const ls=document.getElementById('login-screen');
-  if (ls){ ls.style.display='flex'; ls.style.opacity='1'; }
-}
-async function continueAfterPassword(){
-  try{
-    if (await currentAal()==='aal2'){ return finishLogin(); }
-    const f=await sb.auth.mfa.listFactors();
-    if (f.error) throw f.error;
-    const all=(f.data&&f.data.all)||[];
-    const verified=all.find(x=>x.factor_type==='totp' && x.status==='verified');
-    if (verified){ MFA_FACTOR=verified.id; showMfa('verify'); return; }
-    for (const x of all){ if (x.status!=='verified'){ try{ await sb.auth.mfa.unenroll({factorId:x.id}); }catch(e){} } }
-    const en=await sb.auth.mfa.enroll({factorType:'totp', friendlyName:'Authenticator'});
-    if (en.error) throw en.error;
-    MFA_FACTOR=en.data.id;
-    document.getElementById('mfa-qr').src=en.data.totp.qr_code;
-    setText('mfa-secret', en.data.totp.secret);
-    showMfa('enroll');
-  }catch(e){
-    setText('login-error', e.message||'Could not start verification.');
-  }
-}
-function showMfa(mode){
-  showAuth('mfa');
-  const enroll = mode==='enroll';
-  document.getElementById('mfa-enroll').style.display = enroll?'block':'none';
-  setText('mfa-title', enroll?'Set up your authenticator':'Verification code');
-  setText('mfa-sub', enroll
-    ? 'Scan the QR code with an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, Authy), then enter the 6-digit code it shows.'
-    : 'Enter the 6-digit code from your authenticator app.');
-  setText('mfa-error',''); const c=document.getElementById('mfa-code'); c.value=''; c.focus();
-}
-async function handleMfa(e){
-  e.preventDefault();
-  const code=document.getElementById('mfa-code').value.replace(/\s+/g,'');
-  const btn=document.getElementById('mfa-btn');
-  if (!/^\d{6}$/.test(code)){ setText('mfa-error','Enter the 6-digit code.'); return; }
-  btn.disabled=true; btn.textContent='Verifying...'; setText('mfa-error','');
-  try{
-    const r=await sb.auth.mfa.challengeAndVerify({factorId:MFA_FACTOR, code});
-    if (r.error) throw r.error;
-    await finishLogin();
-  }catch(ex){
-    setText('mfa-error',(ex.message||'Wrong code')+' Try the newest code.');
-  }
-  btn.disabled=false; btn.textContent='Verify';
-}
-async function finishLogin(){
-  const g=await sb.auth.getSession();
-  SESSION=g.data.session;
-  const rm=document.getElementById('remember-me');
-  try{ localStorage.setItem('fy_stay', (!rm || rm.checked) ? '1' : '0'); }catch(e){}
-  lockClear(); paintAttempts();
-  logEvent('login_success',{});
-  launchApp();
-}
-async function mfaBack(){
-  try{ await sb.auth.signOut(); }catch(e){}
-  SESSION=null; MFA_FACTOR=null; showAuth('signin');
-  const b=document.getElementById('login-btn'); if(b){ b.textContent='Sign in'; b.disabled=false; }
-}
-async function bootSecure(){
-  showLogin();
-  if (!sb){ setHTML('auth-notice','<div class="callout callout-warn">The database library did not load. Reload the page once your connection is back.</div>'); return; }
-  try{
-    const g=await sb.auth.getSession();
-    if (g.data && g.data.session){
-      SESSION=g.data.session;
-      if (await currentAal()==='aal2'){ launchApp(); return; }
-      await continueAfterPassword();
-    }
-  }catch(e){ console.warn('boot', e); }
-}
-
 window.addEventListener('DOMContentLoaded', function(){
   initSupabase();
   paintAttempts();
 
   const lf=document.getElementById('login-form');
   if (lf) lf.addEventListener('submit', handleLogin);
-  const mf=document.getElementById('mfa-form'); if (mf) mf.addEventListener('submit', handleMfa);
   const sf=document.getElementById('signup-form');
   if (sf) sf.addEventListener('submit', handleSignup);
   const ov=document.getElementById('modal-overlay');
@@ -3644,7 +3570,7 @@ window.addEventListener('DOMContentLoaded', function(){
       else if (session){ SESSION=session; }
     });
   }
-  bootSecure();
+  startLocalMode();
   return;
 
   if (sb){
